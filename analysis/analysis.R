@@ -1,283 +1,218 @@
 
-# preliminaries 
+# Meta --------------------------------------------------------------------
+
+## Title:         Econ/HLTH 470 Homework 5 Answers
+## Author:        Martinna Roldan
+## Date Created:  04/28/2025
+## Date Edited:   04/28/2025
+## Description:   This file renders/runs all relevant R code for the assignment
+
+
+# Preliminaries -----------------------------------------------------------
+
 if (!require("pacman")) install.packages("pacman")
-install.packages('BiocManager')
-pacman::p_load(tidyverse, ggplot2, dplyr, lubridate, readr, readxl, scales, acs, tidyr)
-
-# import the data 
-final.data <- read_tsv("data/output/acs_medicaid.txt")
+pacman::p_load(tidyverse, ggplot2, dplyr, lubridate, stringr, readxl, data.table, gdata, scales,
+               modelsummary, kableExtra, broom, cobalt, fixest)
 
 
+# Read data and set workspace for knitr -------------------------------
+final.data <- read_tsv('data/output/acs_medicaid.txt')
 
-# 1. Plot the share of the adult population with direct purchase health insurance over time.
-direct.share <- final.data %>%
+final.data <- final.data %>%
+  mutate(perc_private = (ins_employer + ins_direct)/adult_pop,
+         perc_public = (ins_medicare + ins_medicaid)/adult_pop,
+         perc_ins = (adult_pop - uninsured)/adult_pop,
+         perc_unins = uninsured/adult_pop,
+         perc_employer = ins_employer/adult_pop,
+         perc_medicaid = ins_medicaid/adult_pop,
+         perc_medicare = ins_medicare/adult_pop,
+         perc_direct = ins_direct/adult_pop) %>%
+  filter(! State %in% c("Puerto Rico", "District of Columbia"))
+
+
+
+# Create objects for markdown ---------------------------------------------
+
+
+## Summary, Q1 - Share of direct purchase
+direct.plot <- final.data %>%
   group_by(year) %>%
-  summarize(
-    total_direct = sum(ins_direct, na.rm = TRUE),
-    total_adult_pop = sum(adult_pop, na.rm = TRUE),
-    share_direct = total_direct / total_adult_pop
+  summarize(mean = mean(perc_direct)) %>%
+  ggplot(aes(x = year, y = mean)) +
+  geom_line(size = 1.2, color = "#0072B2") +
+  geom_point(size = 2, color = "#0072B2") +
+  geom_vline(xintercept = 2013.5, color = "red", linetype = "dashed", size = 1) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Share of Direct Purchase Insurance Over Time",
+    subtitle = "Red line = ACA Expansion (2014)",
+    x = "Year",
+    y = "Fraction with Direct Purchase"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 12),
+    axis.title = element_text(face = "bold")
   )
 
-### plot
-direct.share.plt <- ggplot(direct.share, aes(x = year, y = share_direct)) +
-  geom_line(size = 1.2, color = "steelblue") +
-  geom_point(color = "steelblue") +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  labs(
-    title = "Share of Adult Population with Direct Purchase Insurance (2012–2019)",
-    x = "Year",
-    y = "Share with Direct Purchase Insurance"
-  ) +
-  theme_minimal()
+print(direct.plot)
 
-print(direct.share.plt)
-
-
-
-# 3. Plot the share of the adult population with Medicaid over time.
-medicaid.share <- final.data %>%
+## Summary, Q3 - Share of medicaid
+medicaid.plot <- final.data %>%
   group_by(year) %>%
-  summarize(
-    total_medicaid = sum(ins_medicaid, na.rm = TRUE),
-    total_adult_pop = sum(adult_pop, na.rm = TRUE),
-    share_medicaid = total_medicaid / total_adult_pop
-  )
-
-### plot
-medicaid.share.plt <- ggplot(medicaid.share, aes(x = year, y = share_medicaid)) +
-  geom_line(size = 1.2, color = "darkgreen") +
-  geom_point(color = "darkgreen") +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  summarize(mean = mean(perc_medicaid)) %>%
+  ggplot(aes(x = year, y = mean)) +
+  geom_line(size = 1.2, color = "#009E73") +
+  geom_point(size = 2, color = "#009E73") +
+  geom_vline(xintercept = 2013.5, color = "red", linetype = "dashed", size = 1) +
+  theme_minimal(base_size = 14) +
   labs(
-    title = "Share of Adult Population with Medicaid (2012–2019)",
+    title = "Share of Medicaid Insurance Over Time",
+    subtitle = "Red line = ACA Expansion (2014)",
     x = "Year",
-    y = "Share with Medicaid"
+    y = "Fraction with Medicaid"
   ) +
-  theme_minimal()
-
-print(medicaid.share.plt)
-
-
-
-# 4. Plot the share of uninsured over time, separately by states that expanded Medicaid in 2014 versus those that did not. Drop all states that expanded after 2014.
-### states that expanded in 2014 
-expanded <- final.data %>%
-  group_by(State) %>%
-  summarize(first_expand_year = unique(year(date_adopted))) %>%
-  mutate(
-    expand_group = case_when(
-      is.na(first_expand_year) ~ "Never Expanded",
-      first_expand_year == 2014 ~ "Expanded in 2014",
-      TRUE ~ NA_character_  # Drop states with other expansion years
-    )
-  ) %>%
-  filter(!is.na(expand_group))
-
-### join to main data 
-final.data.exp <- final.data %>%
-  inner_join(expanded, by = "State")
-
-### calculate uninsured share by year and expansion group
-uninsured.share <- final.data.exp %>%
-  group_by(year, expand_group) %>%
-  summarize(
-    total_uninsured = sum(uninsured, na.rm = TRUE),
-    total_adult_pop = sum(adult_pop, na.rm = TRUE),
-    share_uninsured = total_uninsured / total_adult_pop,
-    .groups = "drop"
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 12),
+    axis.title = element_text(face = "bold")
   )
 
-### plot
-uninsured.plot <- ggplot(uninsured.share, aes(x = year, y = share_uninsured, color = expand_group)) +
-  geom_line(size = 1.2) +
-  geom_point() +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+print(medicaid.plot)
+## Summary, Q4 - Share uninsured
+ins.plot.dat <- final.data %>%
+  filter(is.na(expand_year) | expand_year == 2014) %>%
+  group_by(expand_ever, year) %>%
+  summarize(mean = mean(perc_unins))
+
+uninsurance.plot <- ggplot(ins.plot.dat, aes(x = year, y = mean, group = expand_ever, linetype = expand_ever)) +
+  geom_line(size = 1.2, aes(color = expand_ever)) +
+  geom_point(size = 2, aes(color = expand_ever)) +
+  geom_vline(xintercept = 2013.5, color = "red", linetype = "dashed", size = 1) +
+  scale_color_manual(values = c("TRUE" = "#D55E00", "FALSE" = "#0072B2")) +
+  theme_minimal(base_size = 14) +
   labs(
-    title = "Uninsured Rate by Medicaid Expansion Status (2012–2019)",
+    title = "Share of Uninsured Over Time by Medicaid Expansion",
+    subtitle = "Red line = ACA Expansion (2014)",
     x = "Year",
-    y = "Share Uninsured",
-    color = "Expansion Status"
+    y = "Fraction Uninsured",
+    color = "Expansion Status",
+    linetype = "Expansion Status"
   ) +
-  theme_minimal()
-
-print(uninsured.plot)
-
-
-
-###### For the rest of the assignment, we’re going to apply the difference-in-differences estimator to the question of Medicaid expansion and uninsurance.
-
-# 5. Calculate the average percent of uninsured individuals in 2012 and 2015, separately for expansion and non-expansion states. Present your results in a basic 2x2 DD table.
-### expansion status as of 2014
-expansion.status <- final.data %>%
-  group_by(State) %>%
-  summarize(first_expand_year = unique(year(date_adopted))) %>%
-  mutate(
-    group = case_when(
-      first_expand_year == 2014 ~ "Expansion",
-      is.na(first_expand_year) ~ "Non-Expansion",
-      TRUE ~ NA_character_  # drop late expanders
-    )
-  ) %>%
-  filter(!is.na(group))
-
-### merge with final data
-dd.data <- final.data %>%
-  filter(year %in% c(2012, 2015)) %>%
-  inner_join(expansion.status, by = "State")
-
-### compute mean uninsured share by year & group
-dd.table <- dd.data %>%
-  group_by(group, year) %>%
-  summarize(
-    avg_uninsured = sum(uninsured, na.rm = TRUE) / sum(adult_pop, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  pivot_wider(names_from = year, values_from = avg_uninsured)
-
-### add DID manually 
-dd.table <- dd.table %>%
-  mutate(
-    diff = `2015` - `2012`
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 12),
+    axis.title = element_text(face = "bold"),
+    legend.position = "bottom"
   )
 
+print(uninsurance.plot)
+
+## ATE, Q1 - DD Table
+dd.table <- final.data %>% 
+  filter(is.na(expand_year) | expand_year==2014) %>%
+  filter(year %in% c(2012, 2015)) %>%  
+  group_by(expand_ever, year) %>%
+  summarize(uninsured=mean(perc_unins))
+
+dd.table <- pivot_wider(dd.table, names_from="year", names_prefix="year", values_from="uninsured") %>% 
+  ungroup() %>%
+  mutate(expand_ever=case_when(
+    expand_ever==FALSE ~ 'Non-expansion',
+    expand_ever==TRUE ~ 'Expansion')
+  ) %>%
+  rename(Group=expand_ever,
+         Pre=year2012,
+         Post=year2015)
 print(dd.table)
+## ATE, Q2/3 - DD regression estimates, 2014 expansion only (with and without state/year fixed effects)
+reg.data <- final.data %>% mutate(post=(year>=2014),
+                                  treat=post*expand_ever) %>%
+  filter(is.na(expand_year) | expand_year==2014)
 
+dd.est <- lm(perc_unins~post + expand_ever + treat, data=reg.data)
+fe.est <- feols(perc_unins~treat | State + year, data=reg.data)
+print(dd.est)
+print(summary(dd.est))
+print(fe.est)
+print(summary(fe.est))
 
-
-# 6. Estimate the effect of Medicaid expansion on the uninsurance rate using a standard DD regression estimator, again focusing only on states that expanded in 2014 versus those that never expanded.
-reg.data <- dd.data %>%
-  mutate(
-    post = if_else(year == 2015, 1, 0),
-    expansion = if_else(group == "Expansion", 1, 0),
-    treat = expansion * post,
-    uninsured_rate = uninsured / adult_pop
+## ATE, Q4 - DD with time varying treatment
+reg.data2 <- final.data %>% 
+  mutate(treat=case_when(
+    year>=expand_year & !is.na(expand_year) ~ 1,
+    is.na(expand_year) ~ 0,
+    year<expand_year & !is.na(expand_year) ~ 0)
   )
+fe.est2 <- feols(perc_unins~treat | State + year, data=reg.data2)
+print(fe.est2)
 
-### DID regression
-dd.model <- lm(uninsured_rate ~ expansion + post + treat, data = reg.data)
-summary(dd.model)
+## ATE, Q5 - Event study with constant treatment
+mod.twfe <- feols(perc_unins~i(year, expand_ever, ref=2013) | State + year,
+                  cluster=~State,
+                  data=reg.data)
+print(mod.twfe)
 
-
-
-# 7. Include state and year fixed effects in your estimates. 
-install.packages("fixest") 
-library(fixest) 
-library(broom)
-
-### make sure 'State' and 'year' are in data 
-fe.model <- feols(uninsured_rate ~ treat | State + year, data = reg.data)
-fe.model.tidy <- tidy(fe.model, conf.int = TRUE)
-summary(fe.model.tidy)
-
-
-
-# 8. Repeat the analysis in question 7 but include all states (even those that expanded after 2014). Are your results different? If so, why?
-### expansion status 
-expansion.status.all <- final.data %>%
-  group_by(State) %>%
-  summarize(first_expand_year = unique(year(date_adopted))) %>%
-  mutate(
-    expansion_by_2015 = if_else(!is.na(first_expand_year) & first_expand_year <= 2015, 1, 0)
-  )
-
-### merge with final data
-dd.data.all <- final.data %>%
-  filter(year %in% c(2012, 2015)) %>%
-  inner_join(expansion.status.all, by = "State") %>%
-  mutate(
-    post = if_else(year == 2015, 1, 0),
-    treat = expansion_by_2015 * post,
-    uninsured_rate = uninsured / adult_pop
-  )
-
-### run fixed effects regression using all states
-fe.model.all <- feols(uninsured_rate ~ treat | State + year, data = dd.data.all)
-
-# save tidy version for table output
-fe.model.all.tidy <- tidy(fe.model.all, conf.int = TRUE)
-summary(fe.model.all.tidy)
-
-
-
-# 9. Provide an “event study” graph showing the effects of Medicaid expansion in each year. Use the specification that includes state and year fixed effects, limited to states that expanded in 2014 or never expanded.
-event.data <- final.data %>%
-  inner_join(expansion.status, by = "State") %>%
-  mutate(
-    uninsured_rate = uninsured / adult_pop,
-    expansion = if_else(group == "Expansion", 1, 0),
-    year = as.factor(year)  # needed for fixest interaction
-  )
-
-### estimate model  
-event.model <- feols(
-  uninsured_rate ~ i(year, expansion, ref = "2013") | State + year,
-  data = event.data
-)
-
-### plot the data 
-event.plot <- tidy(event.model, conf.int = TRUE) %>%
+# Create a tidy dataframe of estimates and standard errors
+event.plot.data <- broom::tidy(mod.twfe) %>%
   filter(str_detect(term, "year::")) %>%
   mutate(
-    year = as.numeric(str_extract(term, "\\d+"))
+    year = as.numeric(str_remove(str_remove(term, "year::"), ":expand_ever")),
+    estimate = estimate,
+    conf.low = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error
   )
 
-event.study14 <- ggplot(event.plot, aes(x = year, y = estimate)) +
-      geom_line(color = "steelblue", linewidth = 1.2) +
-      geom_point(size = 2, color = "steelblue") +
-      geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
-      geom_vline(xintercept = 2014, linetype = "dashed", color = "red") +
-      geom_hline(yintercept = 0, linetype = "dotted") +
-      labs(
-        title = "Event Study: Effect of Medicaid Expansion on Uninsurance Rate",
-        x = "Year",
-        y = "Effect on Uninsurance (relative to 2013)",
-        caption = "Dashed line = Medicaid expansion year (2014); Dotted line = no effect"
-      ) +
-      theme_minimal()
-print(event.study14)
-
-
-
-# 10. Repeat part 9 but again include states that expanded after 2014. Note: this is tricky…you need to put all states onto “event time” to create this graph.
-event.data.all <- final.data %>%
-  mutate(
-    expand_year = year(date_adopted),
-    event_time = year - expand_year,
-    uninsured_rate = uninsured / adult_pop
-  )
-
-### trim event window 
-event.data.all <- event.data.all %>%
-  filter(event_time >= -5, event_time <= 5) %>%
-  mutate(event_time = factor(event_time))
-
-### estimate model
-event.model.all <- feols(
-  uninsured_rate ~ i(event_time, ref = "-1") | State + year,
-  data = event.data.all
-)
-
-### extract and plot 
-event.plot.all <- tidy(event.model.all, conf.int = TRUE) %>%
-  filter(str_detect(term, "event_time::")) %>%
-  mutate(event_time = as.integer(str_extract(term, "-?\\d+")))
-
-event.study.all <- ggplot(event.plot.all, aes(x = event_time, y = estimate)) +
-  geom_line(color = "steelblue", linewidth = 1.2) +
-  geom_point(size = 2, color = "steelblue") +
+# Plot the Event Study
+event.study.plot <- ggplot(event.plot.data, aes(x = year, y = estimate)) +
+  geom_point(size = 2) +
   geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 2013, linetype = "dashed") + 
+  geom_hline(yintercept = 0, color = "black") +
+  theme_minimal(base_size = 14) +
   labs(
-    title = "Generalized Event Study: Effect of Medicaid Expansion on Uninsurance",
-    x = "Years Since Expansion",
-    y = "Effect on Uninsurance Rate (vs. Year Before Expansion)",
-    caption = "Dashed line = expansion year (event time 0); Dotted line = no effect"
+    title = NULL,
+    x = "Time to treatment",
+    y = "Estimate and 95% Conf. Int."
+  )
+
+print(event.study.plot)
+
+
+## ATE, Q6 - Event study with time varying treatment
+reg.data2 <- reg.data2 %>%
+  mutate(time_to_treat=ifelse(expand_ever==TRUE, year-expand_year, -1),
+         time_to_treat=ifelse(time_to_treat<=-4, -4, time_to_treat))
+
+mod.twfe2 <- feols(perc_unins~i(time_to_treat, expand_ever, ref=-1) | State + year,
+                  cluster=~State,
+                  data=reg.data2)
+print(mod.twfe2)
+# Tidy dataframe for plotting
+event.plot.data2 <- broom::tidy(mod.twfe2) %>%
+  filter(str_detect(term, "time_to_treat::")) %>%
+  mutate(
+    time_to_treat = as.numeric(str_remove(str_remove(term, "time_to_treat::"), ":expand_ever")),
+    conf.low = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error
+  )
+
+# Now make the plot
+event.study.plot2 <- ggplot(event.plot.data2, aes(x = time_to_treat, y = estimate)) +
+  geom_point(size = 1.5) +  # smaller dots
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1) +  # thinner error bars
+  geom_vline(xintercept = -1, linetype = "dashed") +  # FIX: dashed line at -1
+  geom_hline(yintercept = 0, color = "black") +
+  theme_bw(base_size = 14) +   # use theme_bw like your professor
+  labs(
+    title = NULL,
+    x = "Time to treatment",
+    y = "Estimate and 95% Conf. Int."
   ) +
-  theme_minimal()
-print(event.study.all)
+  scale_x_continuous(breaks = seq(-4, 5, by = 1))  # nicer x-axis ticks
+
+print(event.study.plot2)
+rm(list=c("final.data","ins.plot.dat"))
+save.image("analysis/Hwk5_workspace.Rdata")
 
 
-
-rm(list = setdiff(ls(), c("direct.share.plt", "medicaid.share.plt", "uninsured.plot", "dd.table", "dd.model", "fe.model.tidy", "fe.model.all.tidy", "event.study14", "event.study.all")))
-save.image("submission_1/results/hwk5_workspace.RData") 
